@@ -1,39 +1,35 @@
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
 import os
-from PIL import Image
 
 # ==============================
 # Paths
 # ==============================
-BASE_DIR = "assets/agriculture"
-EDA_DIR = os.path.join(BASE_DIR, "eda_charts")
-MODEL_DIR = os.path.join(BASE_DIR, "models")
+MODEL_DIR = "assets/models"
+EDA_DIR = "assets/eda"
+DATA_DIR = "assets/data"
 
 # ==============================
 # Load Models and Scaler
 # ==============================
-@st.cache_resource
-def load_models():
-    linear_model = joblib.load(os.path.join(MODEL_DIR, "linear_regression_model.pkl"))
-    rf_model = joblib.load(os.path.join(MODEL_DIR, "random_forest_model.pkl"))
-    scaler = joblib.load(os.path.join(MODEL_DIR, "scaler.pkl"))
-    return linear_model, rf_model, scaler
-
-lin_reg, rf_model, scaler = load_models()
+lin_reg = joblib.load(os.path.join(MODEL_DIR, "linear_regression_model.pkl"))
+rf_model = joblib.load(os.path.join(MODEL_DIR, "random_forest_model.pkl"))
+scaler = joblib.load(os.path.join(MODEL_DIR, "scaler.pkl"))
 
 # ==============================
-# Load Dataset for Reference
+# Load Dataset
 # ==============================
-@st.cache_data
-def load_data():
-    # Use your cleaned Nigerian dataset
-    file_path = "drive/MyDrive/nigeria_agriculture_dataset.csv"  # Adjust path if needed
-    return pd.read_csv(file_path)
+# This dataset will help populate dropdowns dynamically
+df = pd.read_csv(os.path.join(DATA_DIR, "nigeria_agriculture.csv"))
 
-df = load_data()
+# Extract unique values
+products = sorted(df['product'].unique())
+states = sorted(df['admin_1'].unique())
 
 # ==============================
 # Streamlit Page Config
@@ -43,40 +39,52 @@ st.set_page_config(page_title="🌾 Nigerian Agriculture Yield Prediction", layo
 st.title("🌾 Nigerian Agriculture Yield Prediction")
 st.markdown(
     """
-    This dashboard predicts **crop yields** in Nigeria based on agricultural data.  
-    Select features, choose a model, and see real-time predictions along with exploratory data analysis (EDA) visuals.
+    Predict **crop yields** across Nigeria using Machine Learning.  
+    Choose a model and input farm details to get an estimated yield.
     """
 )
 
 # ==============================
-# Sidebar Inputs
+# Input Features (Main Page)
 # ==============================
-st.sidebar.header("Configure Prediction")
+st.header("Input Farm Details")
 
-# Model choice
-model_choice = st.sidebar.radio("Choose Prediction Model", ("Linear Regression", "Random Forest"))
+col1, col2 = st.columns(2)
 
-# Input features
-st.sidebar.subheader("Input Features")
-planting_year = st.sidebar.slider("Planting Year", int(df['planting_year'].min()), int(df['planting_year'].max()), 2020)
-harvest_year = st.sidebar.slider("Harvest Year", int(df['harvest_year'].min()), int(df['harvest_year'].max()), 2021)
-area = st.sidebar.number_input("Area Harvested (hectares)", min_value=10.0, max_value=2_000_000.0, value=50_000.0, step=100.0)
-production = st.sidebar.number_input("Production Quantity (metric tons)", min_value=30.0, max_value=6_500_000.0, value=80_000.0, step=100.0)
+with col1:
+    product = st.selectbox("Select Crop", products)
+    state = st.selectbox("Select State", states)
+    planting_year = st.slider("Planting Year", min_value=1999, max_value=2023, value=2020)
+    harvest_year = st.slider("Harvest Year", min_value=1999, max_value=2023, value=2021)
+
+with col2:
+    area = st.number_input("Area (hectares)", min_value=1.0, value=100.0, step=1.0)
+    production = st.number_input("Production (metric tons)", min_value=1.0, value=500.0, step=1.0)
+    model_choice = st.radio("Select Model", ("Linear Regression", "Random Forest"))
 
 # ==============================
-# Prediction
+# Predict Button
 # ==============================
-if st.sidebar.button("Predict Yield"):
-    # Prepare data
-    input_data = pd.DataFrame([{
+if st.button("Predict Yield"):
+    # Create dataframe for model input
+    input_df = pd.DataFrame([{
+        "admin_1": state,
+        "product": product,
         "planting_year": planting_year,
         "harvest_year": harvest_year,
         "area": area,
         "production": production
     }])
 
-    # Scale data
-    input_scaled = scaler.transform(input_data)
+    # One-hot encode like training
+    input_df = pd.get_dummies(input_df)
+
+    # Ensure same columns as training
+    training_columns = joblib.load(os.path.join(MODEL_DIR, "columns.pkl"))
+    input_df = input_df.reindex(columns=training_columns, fill_value=0)
+
+    # Scale
+    input_scaled = scaler.transform(input_df)
 
     # Predict
     if model_choice == "Linear Regression":
@@ -85,38 +93,34 @@ if st.sidebar.button("Predict Yield"):
         prediction = rf_model.predict(input_scaled)[0]
 
     # Display result
-    st.success(f"🌱 **Predicted Yield:** {prediction:.2f} metric tons per hectare")
+    st.success(f"🌱 **Predicted Yield:** {prediction:.2f} tons per hectare")
 
-    st.markdown("### Prediction Details")
-    st.write(input_data)
+    # Show encoded input for transparency
+    st.markdown("### Encoded Input Data")
+    st.write(input_df)
 
 # ==============================
 # EDA Section
 # ==============================
 st.markdown("---")
-st.header("📊 Exploratory Data Analysis")
+st.header("Exploratory Data Analysis (EDA)")
 
-st.markdown("Below are key insights from the dataset, generated during the EDA phase.")
+st.write("Below are some key insights from the dataset:")
 
-# Display EDA Charts
-col1, col2 = st.columns(2)
+eda_cols = st.columns(2)
 
-with col1:
-    st.subheader("Yield Distribution by Product")
-    st.image(os.path.join(EDA_DIR, "yield_distribution_by_product.png"))
+with eda_cols[0]:
+    st.image(os.path.join(EDA_DIR, "yield_distribution_by_product.png"), caption="Yield Distribution by Product")
+    st.image(os.path.join(EDA_DIR, "area_vs_production.png"), caption="Area vs Production")
 
-    st.subheader("Area vs Production")
-    st.image(os.path.join(EDA_DIR, "area_vs_production.png"))
+with eda_cols[1]:
+    st.image(os.path.join(EDA_DIR, "correlation_heatmap.png"), caption="Correlation Heatmap")
+    st.image(os.path.join(EDA_DIR, "top_products_by_yield.png"), caption="Top Products by Yield")
 
-with col2:
-    st.subheader("Correlation Heatmap")
-    st.image(os.path.join(EDA_DIR, "correlation_heatmap.png"))
-
-    st.subheader("Top Products by Yield")
-    st.image(os.path.join(EDA_DIR, "top_products_by_yield.png"))
+st.image(os.path.join(EDA_DIR, "feature_importance.png"), caption="Top Feature Importances (Random Forest)")
 
 # ==============================
 # Footer
 # ==============================
 st.markdown("---")
-st.markdown("Built with ❤️ by **Omah Tech Ltd** | Empowering Africa with AI")
+st.markdown("Built with ❤️ by **Omah Tech Ltd**")

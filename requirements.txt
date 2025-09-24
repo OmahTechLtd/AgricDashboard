@@ -1,0 +1,19 @@
+# Core libraries
+pandas==2.2.2
+numpy==1.26.4
+
+# Machine Learning
+scikit-learn==1.6.1
+
+# Visualization
+matplotlib==3.9.2
+seaborn==0.13.2
+
+# Streamlit for dashboard
+streamlit==1.37.0
+
+# Joblib for saving/loading models
+joblib==1.4.2
+
+# Optional - useful utilities
+python-dotenv==1.0.1
